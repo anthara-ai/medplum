@@ -1,0 +1,17 @@
+{
+  "enabledMcpjsonServers": [
+    "fabric"
+  ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'If get_instructions and get_standards have not been called or are not in your context, call them now. You must follow them while coding.'"
+          }
+        ]
+      }
+    ]
+  }
+}
