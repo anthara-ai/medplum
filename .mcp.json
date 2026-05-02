@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fabric": {
+      "type": "sse",
+      "url": "https://medplum.anthara.ai/fabric/mcp/sse/anthara",
+      "headers": {
+        "Authorization": "Bearer ${ANTHARA_API_KEY}"
+      }
+    }
+  }
+}
