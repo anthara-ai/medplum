@@ -1,14 +1,74 @@
 {
-  "enabledMcpjsonServers": [
-    "fabric"
-  ],
+  "permissions": {
+    "allow": [
+      "mcp__fabric",
+      "Bash(git remote get-url *)"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "anthara": {
+      "source": {
+        "source": "directory",
+        "path": ".anthara"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "anthara@anthara": true
+  },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__fabric__add_shared_memory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/gate-shared-memory.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/block-local-memory.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — PRE-COMPACTION: Context compaction is about to happen. Check for unsaved durable learnings that match SAVE triggers: user corrections, stated preferences, decisions made, gotchas discovered, reference URLs shared. Each memory must be atomic, context-independent, durable, and include subject name and WHY. Update existing memories instead of duplicating. Do NOT dump session state or task summaries. If nothing unsaved, skip silently.'"
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'If get_instructions and get_standards have not been called or are not in your context, call them now. You must follow them while coding.'"
+            "command": "echo 'MANDATORY — LOAD STANDARDS: If mcp__fabric__get_standards has not been called in this session, call it NOW before ANY other tool call or reply. Do not skip or defer. Failure to load is a violation. If already loaded, skip.'"
+          },
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — LOAD MEMORIES: If mcp__fabric__list_memories (scope=all) has not been called in this session, call it NOW before ANY other tool call or reply. Do not skip or defer. Failure to load is a violation. If already loaded, skip.'"
+          },
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — APPLY CONSTRAINTS: Treat loaded standards and memories as hard constraints. Violating them is a failure. If a user request conflicts with a standard, surface the conflict before proceeding. Do not ignore or deprioritize standards.'"
+          },
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — MEMORY SAVE POLICY: When asked to remember or save anything, ALWAYS use Fabric (add_private_memory for personal preferences, add_shared_memory for team conventions — confirm shared with user via AskUserQuestion first). NEVER use the local .claude/projects/ file-based memory system. This is enforced by PreToolUse hooks.'"
+          },
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — POST-RESPONSE MEMORY: After responding, silently check if this turn matches a SAVE trigger. SAVE triggers (only these): user corrected your approach, user stated a preference, a decision was made (architecture/process/tooling), a gotcha or pitfall was discovered, user shared a reference URL or resource. Quality rules: each memory must be atomic (one fact), context-independent (readable without this session), durable (useful in future sessions), include subject name (Dinesh prefers X not user prefers X), include WHY if known. Before saving, check if an existing memory should be UPDATED instead of adding a duplicate. When a trigger clearly matches, SAVE immediately without waiting to be asked. Default to SKIP only when it is genuinely ambiguous whether a trigger was hit. If saving: tell user Saved: short summary. If skipping: stop silently with NO message.'"
           }
         ]
       }
