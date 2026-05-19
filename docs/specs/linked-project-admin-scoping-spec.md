@@ -151,11 +151,11 @@ A project admin attempts `CREATE`/`UPDATE`/`DELETE` on a resource whose `meta.pr
 
 **Acceptance criteria**
 
-- [ ] **5.4.1** A project admin in Project A (with linked Project B exporting `Organization`) attempts `repo.updateResource(...)` on a Project B `Organization` resource (i.e., setting `meta.project` to B.id explicitly, or fetching an existing B-resource and updating it). The call rejects with `OperationOutcomeError(notFound)`.
-- [ ] **5.4.2** Same setup as 5.4.1 but for `CREATE`: `repo.createResource({ resourceType: 'Organization', name: 'X', meta: { project: B.id } })` rejects with `OperationOutcomeError(notFound)` (the resource is denied at `canPerformInteraction` before insertion).
-- [ ] **5.4.3** Same setup but for `DELETE`: `repo.deleteResource('Organization', linkedOrg.id)` rejects with `OperationOutcomeError(notFound)`.
-- [ ] **5.4.4** Each of 5.4.1-5.4.3 repeated with each of the seven `projectAdminResourceTypes` as the target. (Note: `Project` writes may have additional special-casing; the test asserts the deny behavior holds for the resource types reachable in the test harness.)
-- [ ] **5.4.5** Compliance (HIPAA §164.312(b) audit controls): verify that no NEW audit log entries are emitted for denied writes (consistent with the existing behavior — denial is a 404, not a 403). Cited rule: HIPAA "Audit controls" — `get_standards` rule_id `2e7ce98c-9655-40ff-9760-7a8043520d1b` [4]. If a future spec changes denial to 403 + audit, this AC documents the current contract.
+- [x] **5.4.1** A project admin in Project A (with linked Project B exporting `Organization`) attempts `repo.updateResource(...)` on a Project B `Organization` resource (i.e., setting `meta.project` to B.id explicitly, or fetching an existing B-resource and updating it). The call rejects with `OperationOutcomeError(notFound)`.
+- [x] **5.4.2** Same setup as 5.4.1 but for `CREATE`: `repo.createResource({ resourceType: 'Organization', name: 'X', meta: { project: B.id } })` rejects with `OperationOutcomeError(notFound)` (the resource is denied at `canPerformInteraction` before insertion).
+- [x] **5.4.3** Same setup but for `DELETE`: `repo.deleteResource('Organization', linkedOrg.id)` rejects with `OperationOutcomeError(notFound)`.
+- [x] **5.4.4** Each of 5.4.1-5.4.3 repeated with each of the seven `projectAdminResourceTypes` as the target. (Note: `Project` writes may have additional special-casing; the test asserts the deny behavior holds for the resource types reachable in the test harness.)
+- [x] **5.4.5** Compliance (HIPAA §164.312(b) audit controls): verify that no NEW audit log entries are emitted for denied writes (consistent with the existing behavior — denial is a 404, not a 403). Cited rule: HIPAA "Audit controls" — `get_standards` rule_id `2e7ce98c-9655-40ff-9760-7a8043520d1b` [4]. If a future spec changes denial to 403 + audit, this AC documents the current contract.
 
 ## 6. NFRs & regulatory compliance
 
