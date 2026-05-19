@@ -120,10 +120,10 @@ The three existing tests in `repo.test.ts` covering `Project.exportedResourceTyp
 
 **Acceptance criteria**
 
-- [ ] **5.2.1** With Project A linking Project B (no `exportedResourceType` set on B), reads from `repo` (A-bound) of `Organization`, `CodeSystem`, `ValueSet`, `Patient`, and `Observation` created in B via `linkedRepo` continue to return the linked resources. (Direct extension of the existing line-2063 test, sweeping the named non-admin types.)
-- [ ] **5.2.2** With Project A linking Project B with `exportedResourceType: ['Organization']`, a search from `repo` for `Organization` returns Project B's organizations; a search for `Patient` does not return Project B's patients. (Locks in the existing line-2063 behavior verbatim.)
-- [ ] **5.2.3** The cached-read path for a non-admin exported type (`Organization` in the example fixture) continues to return the linked resource from `repo.readResource` — locks in `repo.test.ts:2132` behavior verbatim.
-- [ ] **5.2.4** Compliance (test-integrity / repo-specific monitoring rule): a parametric test iterates the seven admin types and a representative non-admin set; for each admin type the search returns 0 linked results; for each non-admin type the search returns the expected linked results given the `exportedResourceType` setting. Single assertion table makes the invariant pair (4.1 + 4.2) legible.
+- [x] **5.2.1** With Project A linking Project B (no `exportedResourceType` set on B), reads from `repo` (A-bound) of `Organization`, `CodeSystem`, `ValueSet`, `Patient`, and `Observation` created in B via `linkedRepo` continue to return the linked resources. (Direct extension of the existing line-2063 test, sweeping the named non-admin types.)
+- [x] **5.2.2** With Project A linking Project B with `exportedResourceType: ['Organization']`, a search from `repo` for `Organization` returns Project B's organizations; a search for `Patient` does not return Project B's patients. (Locks in the existing line-2063 behavior verbatim.)
+- [x] **5.2.3** The cached-read path for a non-admin exported type (`Organization` in the example fixture) continues to return the linked resource from `repo.readResource` — locks in `repo.test.ts:2132` behavior verbatim.
+- [x] **5.2.4** Compliance (test-integrity / repo-specific monitoring rule): a parametric test iterates the seven admin types and a representative non-admin set; for each admin type the search returns 0 linked results; for each non-admin type the search returns the expected linked results given the `exportedResourceType` setting. Single assertion table makes the invariant pair (4.1 + 4.2) legible.
 
 ### 5.3 Super-admin retains cross-project admin-resource visibility
 

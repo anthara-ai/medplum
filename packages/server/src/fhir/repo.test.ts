@@ -2245,6 +2245,10 @@ describe('FHIR Repo', () => {
    *   - ProjectMembership: createTestProject pattern (test.setup.ts:120)
    *   - User: 'Super admin can edit User.meta.project' test (~line 1683)
    *   - UserSecurityRequest: auth/resetpassword.ts:112
+   * @param seedRepo - Repository bound to the project that will own the resource.
+   * @param seedProject - The owning project (used for ProjectMembership.project).
+   * @param resourceType - One of the six admin types excluding Project.
+   * @returns The id of the newly created resource.
    *   - Package / PackageRelease / PackageInstallation:
    *       fhir/operations/packageinstall.test.ts:70-95
    */
@@ -2323,6 +2327,9 @@ describe('FHIR Repo', () => {
    *
    * Mirrors the construction at 'Project.exportedResourceType' (~line 2063);
    * do not invent a parallel setup.
+   * @param opts - Optional fixture overrides.
+   * @param opts.linkedExportedResourceType - Sets `Project.exportedResourceType` on the linked project. Omitted ⇒ no export filter.
+   * @returns The constructed fixture: primary/linked projects, the parent-project repo, a bare seed repo for the primary project, and the linked-project's basic repo.
    */
   async function buildLinkedProjectFixture(opts?: {
     linkedExportedResourceType?: ResourceType[];
@@ -2503,6 +2510,134 @@ describe('FHIR Repo', () => {
       const ids = projects.map((p) => p.id);
       expect(ids).toContain(primaryProject.id);
       expect(ids).toContain(linkedProject.id);
+    }));
+
+  // -----------------------------------------------------------------------
+  // Slice 5.2 — Non-admin resource sharing across linked projects unchanged
+  // -----------------------------------------------------------------------
+  // Spec: docs/specs/linked-project-admin-scoping-spec.md §5.2
+  // Invariant 4.2: Project.link + Project.exportedResourceType filtering for
+  // non-admin resources is unchanged by slice 5.1's guard. This block adds
+  // regression coverage so the invariant cannot quietly regress.
+  //
+  // The existing tests at ~2063 ('Project.exportedResourceType'), ~2132
+  // ('Project.exportedResourceType enforced on cached reads'), and ~2187
+  // ('Project.exportedResourceType allows resources in primary project')
+  // already encode parts of this invariant. The tests here add a parametric
+  // sweep (5.2.1) and the invariant-pair table (5.2.4) to make the contract
+  // legible at the spec level.
+  const sharableNonAdminTypes = ['Organization', 'CodeSystem', 'ValueSet'] as const;
+
+  test.each(sharableNonAdminTypes)(
+    '5.2.1 non-admin %s in linked project still visible from primary when no exportedResourceType is set',
+    (resourceType) =>
+      withTestContext(async () => {
+        // AC 5.2.1: when the linked project sets no exportedResourceType,
+        // every non-admin resource is visible across the link. Sweep covers
+        // the reference-data types that are the canonical Project.link use
+        // case per the public Linked Projects docs.
+        const { linkedProject, repo, linkedRepo } = await buildLinkedProjectFixture();
+
+        const linked = await linkedRepo.createResource({
+          resourceType,
+          ...(resourceType === 'CodeSystem' || resourceType === 'ValueSet'
+            ? { url: 'http://example.com/' + randomUUID(), status: 'active', content: 'complete' }
+            : { name: 'Linked-' + randomUUID() }),
+        } as any);
+
+        // Search: linked resource appears.
+        const results = await repo.searchResources({ resourceType });
+        expect(results.map((r) => r.id)).toContain(linked.id);
+
+        // Direct read: linked resource readable by id.
+        const fetched = await repo.readResource(resourceType, linked.id);
+        expect(fetched.id).toStrictEqual(linked.id);
+        expect(fetched.meta?.project).toStrictEqual(linkedProject.id);
+      })
+  );
+
+  test('5.2.2 exportedResourceType still filters non-admin types (Organization in, Patient out)', () =>
+    withTestContext(async () => {
+      // AC 5.2.2: locks in the existing 'Project.exportedResourceType' (~line
+      // 2063) behavior verbatim — the new admin-resource guard in 5.1 must not
+      // disturb exportedResourceType filtering for non-admin types.
+      const { linkedProject, repo, linkedRepo } = await buildLinkedProjectFixture({
+        linkedExportedResourceType: ['Organization'],
+      });
+
+      const linkedOrg = await linkedRepo.createResource<Organization>({
+        resourceType: 'Organization',
+        name: 'Linked-' + randomUUID(),
+      });
+      const linkedPatient = await linkedRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Linked-' + randomUUID()], family: 'Test' }],
+      });
+
+      const orgs = await repo.searchResources({ resourceType: 'Organization' });
+      expect(orgs.map((o) => o.id)).toContain(linkedOrg.id);
+
+      const patients = await repo.searchResources({ resourceType: 'Patient' });
+      expect(patients.map((p) => p.id)).not.toContain(linkedPatient.id);
+
+      // Sanity: capture intent of the fixture so a future reader sees that
+      // the linked project's exportedResourceType is the relevant constraint.
+      expect(linkedProject.exportedResourceType).toStrictEqual(['Organization']);
+    }));
+
+  test('5.2.3 cached-read of exported non-admin resource still returns the linked resource', () =>
+    withTestContext(async () => {
+      // AC 5.2.3: mirrors the existing regression test at
+      // 'Project.exportedResourceType enforced on cached reads' (~line 2132).
+      // Cache path must still return the resource for an exported non-admin
+      // type — the new admin-resource guard runs before the
+      // exportedResourceType branch but only for admin types.
+      const { repo, linkedRepo } = await buildLinkedProjectFixture({
+        linkedExportedResourceType: ['Organization'],
+      });
+
+      // Warm the Redis cache via linkedRepo.
+      const linkedOrg = await linkedRepo.createResource<Organization>({
+        resourceType: 'Organization',
+        name: 'Cached-' + randomUUID(),
+      });
+
+      // Cache-path read from the parent project's repo returns the resource.
+      const fetched = await repo.readResource<Organization>('Organization', linkedOrg.id);
+      expect(fetched.id).toStrictEqual(linkedOrg.id);
+    }));
+
+  test('5.2.4 invariant pair: admin types return 0 linked, non-admin types return linked (parametric table)', () =>
+    withTestContext(async () => {
+      // AC 5.2.4: parametric invariant-pair assertion making the
+      // (4.1 + 4.2) contract legible in a single test. For each of the six
+      // admin types, search from primary returns 0 linked resources. For a
+      // representative non-admin type, search returns the linked resource.
+      const { linkedProject, repo, linkedRepo } = await buildLinkedProjectFixture();
+
+      // Seed one admin resource of each type into the linked project.
+      const linkedAdminIds: Record<string, string> = {};
+      for (const adminType of adminTypesExceptProject) {
+        linkedAdminIds[adminType] = await seedAdminResource(linkedRepo, linkedProject, adminType);
+      }
+
+      // Seed one non-admin resource (Organization) into the linked project.
+      const linkedOrg = await linkedRepo.createResource<Organization>({
+        resourceType: 'Organization',
+        name: 'InvariantPair-' + randomUUID(),
+      });
+
+      // Admin types: linked resource never appears.
+      for (const adminType of adminTypesExceptProject) {
+        const results = await repo.searchResources({ resourceType: adminType });
+        const linkedId = linkedAdminIds[adminType];
+        expect(results.map((r) => r.id)).not.toContain(linkedId);
+      }
+
+      // Non-admin type: linked resource does appear (no exportedResourceType
+      // on the linked project ⇒ all non-admin types share).
+      const orgs = await repo.searchResources({ resourceType: 'Organization' });
+      expect(orgs.map((o) => o.id)).toContain(linkedOrg.id);
     }));
 
   test('Binary writes no search parameter columns', () =>
