@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'MANDATORY — LOAD STANDARDS: If mcp__fabric__get_standards has not been called in this session, call it NOW before ANY other tool call or reply. Do not skip or defer. Failure to load is a violation. If already loaded, skip.'"
+            "command": "echo 'MANDATORY — LOAD STANDARDS: Before writing or modifying code call mcp__fabric__get_relevant_standards with raw_remote_url set to the output of `git remote get-url origin` and a task object describing what you are about to do (task_type, description, surface_area, data_handled). Standards are advisory — follow them unless there is a strong reason not to. If a user request conflicts with a standard, surface the conflict before proceeding. If already loaded for this task, skip.'"
           },
           {
             "type": "command",
