@@ -136,9 +136,9 @@ A super-admin running searches or direct reads against any of the seven admin re
 
 **Acceptance criteria**
 
-- [ ] **5.3.1** Construct a super-admin `Repository` context (via `getSystemRepo()` or `superAdmin: true` Project + a `ProjectMembership`); create a `User` and a `ProjectMembership` in Project A and another in Project B (linked or unlinked). Search for `User` and `ProjectMembership` returns resources from both projects. Search for `UserSecurityRequest` returns resources from both projects.
-- [ ] **5.3.2** Direct-read of a Project B `User` resource by ID from a super-admin context returns the resource (not 404).
-- [ ] **5.3.3** Compliance (HIPAA §164.308(a)(3) workforce security — role-based access control): a test asserts that toggling `isSuperAdmin()` (by swapping the Repository context fixture) flips the admin-resource visibility behavior end-to-end, demonstrating the bypass is exactly the gate.
+- [x] **5.3.1** Construct a super-admin `Repository` context (via `getSystemRepo()` or `superAdmin: true` Project + a `ProjectMembership`); create a `User` and a `ProjectMembership` in Project A and another in Project B (linked or unlinked). Search for `User` and `ProjectMembership` returns resources from both projects. Search for `UserSecurityRequest` returns resources from both projects.
+- [x] **5.3.2** Direct-read of a Project B `User` resource by ID from a super-admin context returns the resource (not 404).
+- [x] **5.3.3** Compliance (HIPAA §164.308(a)(3) workforce security — role-based access control): a test asserts that toggling `isSuperAdmin()` (by swapping the Repository context fixture) flips the admin-resource visibility behavior end-to-end, demonstrating the bypass is exactly the gate.
 
 ### 5.4 Project-admin writes against linked-project resources continue to be denied
 

@@ -2640,6 +2640,149 @@ describe('FHIR Repo', () => {
       expect(orgs.map((o) => o.id)).toContain(linkedOrg.id);
     }));
 
+  // -----------------------------------------------------------------------
+  // Slice 5.3 — Super-admin retains cross-project admin-resource visibility
+  // -----------------------------------------------------------------------
+  // Spec: docs/specs/linked-project-admin-scoping-spec.md §5.3
+  // Invariant 4.3: the isSuperAdmin() short-circuit at repo.ts:2269 is the
+  // existing gate; the new admin-resource guard introduced in slice 5.1 lives
+  // below that gate and is never reached for super-admins. These tests pin
+  // the bypass so it cannot regress.
+  //
+  // Super-admin construction follows the existing pattern:
+  //   createTestProject({ withRepo: true, superAdmin: true })
+  // which sets both Project.superAdmin = true and RepositoryContext.superAdmin
+  // (see test.setup.ts and repo.ts isSuperAdmin() at ~line 2447).
+
+  /**
+   * Builds a super-admin Repository whose context.projects is [primary, linked]
+   * — mirrors buildLinkedProjectFixture but flips Project.superAdmin = true
+   * on the primary project before calling getRepoForLogin so the resulting
+   * Repository has context.superAdmin = true (see accesspolicy.ts:94 which
+   * reads project.superAdmin). Used to drive slice 5.3 ACs that depend on a
+   * super-admin actor traversing Project.link.
+   * @returns The fixture: super-admin primary project, linked project, the
+   *   super-admin repo bound to both via Project.link, and a bare linked-repo
+   *   for seeding resources into the linked project.
+   */
+  async function buildSuperAdminLinkedProjectFixture(): Promise<{
+    primaryProject: WithId<Project>;
+    linkedProject: WithId<Project>;
+    repo: Repository;
+    linkedRepo: Repository;
+  }> {
+    const { project: linkedProject, repo: linkedRepo } = await createTestProject({
+      project: {},
+      withRepo: true,
+    });
+
+    const regRequest: RegisterRequest = {
+      firstName: randomUUID(),
+      lastName: randomUUID(),
+      projectName: randomUUID(),
+      email: randomUUID() + '@example.com',
+      password: randomUUID(),
+    };
+    const regResult = await registerNew(regRequest);
+
+    // Flip superAdmin=true and wire Project.link in one update — accesspolicy.ts
+    // reads project.superAdmin into context.superAdmin and expands linked
+    // projects into context.projects.
+    const primaryProject = await globalSystemRepo.updateResource({
+      ...regResult.project,
+      superAdmin: true,
+      link: [{ project: createReference(linkedProject) }],
+    });
+
+    const repo = await getRepoForLogin({
+      project: primaryProject,
+      membership: regResult.membership,
+      login: regResult.login,
+      userConfig: {} as UserConfiguration,
+    });
+
+    return { primaryProject, linkedProject, repo, linkedRepo };
+  }
+
+  test('5.3.1 super-admin sees admin resources across linked projects (search)', () =>
+    withTestContext(async () => {
+      // AC 5.3.1: a super-admin Repository whose context.projects spans
+      // [primary, linked] sees admin resources from BOTH. The slice-5.1 guard
+      // in getPermittedProjectIds bypasses on isSuperAdmin() so admin types
+      // continue to widen across the link for super-admins.
+      const { primaryProject, linkedProject, repo, linkedRepo } =
+        await buildSuperAdminLinkedProjectFixture();
+      expect(repo.isSuperAdmin()).toBe(true);
+
+      // Seed an admin resource of each named type into the LINKED project.
+      const linkedUserId = await seedAdminResource(linkedRepo, linkedProject, 'User');
+      const linkedMembershipId = await seedAdminResource(linkedRepo, linkedProject, 'ProjectMembership');
+      const linkedUsrId = await seedAdminResource(linkedRepo, linkedProject, 'UserSecurityRequest');
+
+      // Super-admin searches return linked-project admin resources.
+      const users = await repo.searchResources({ resourceType: 'User' });
+      expect(users.map((u) => u.id)).toContain(linkedUserId);
+
+      const memberships = await repo.searchResources({ resourceType: 'ProjectMembership' });
+      expect(memberships.map((m) => m.id)).toContain(linkedMembershipId);
+
+      const usrs = await repo.searchResources({ resourceType: 'UserSecurityRequest' });
+      expect(usrs.map((u) => u.id)).toContain(linkedUsrId);
+
+      // Reference primaryProject so the test reads as a multi-project
+      // assertion rather than a single-project one.
+      expect(primaryProject.superAdmin).toBe(true);
+    }));
+
+  test('5.3.2 super-admin direct-reads a linked-project User resource (not 404)', () =>
+    withTestContext(async () => {
+      // AC 5.3.2: direct-read of a linked-project User from a super-admin
+      // context returns the resource — the new guard's 404 path is bypassed
+      // by isSuperAdmin() inside getPermittedProjectIds.
+      const { linkedProject, repo, linkedRepo } = await buildSuperAdminLinkedProjectFixture();
+
+      const linkedUserId = await seedAdminResource(linkedRepo, linkedProject, 'User');
+
+      const fetched = await repo.readResource<User>('User', linkedUserId);
+      expect(fetched.id).toStrictEqual(linkedUserId);
+      expect(fetched.meta?.project).toStrictEqual(linkedProject.id);
+    }));
+
+  test('5.3.3 isSuperAdmin gate flips admin-resource visibility end-to-end (HIPAA workforce security)', () =>
+    withTestContext(async () => {
+      // AC 5.3.3 — Compliance assertion. Cited control:
+      //   HIPAA §164.308(a)(3) workforce security — role-based access control
+      // Toggling isSuperAdmin() against the same multi-project shape flips
+      // admin-resource visibility end-to-end, demonstrating the bypass is
+      // exactly the gate. With superAdmin=false the slice-5.1 guard collapses
+      // to primary-only; with superAdmin=true the guard is bypassed and
+      // linked admin resources surface.
+
+      // Project-admin path: slice-5.1 guard collapses to primary; linked User
+      // not visible.
+      const {
+        linkedProject: paLinked,
+        repo: projectAdminRepo,
+        linkedRepo: paLinkedRepo,
+      } = await buildLinkedProjectFixture();
+      const linkedUserIdForPA = await seedAdminResource(paLinkedRepo, paLinked, 'User');
+      const projectAdminResults = await projectAdminRepo.searchResources({ resourceType: 'User' });
+      expect(projectAdminResults.map((u) => u.id)).not.toContain(linkedUserIdForPA);
+      expect(projectAdminRepo.isSuperAdmin()).toBe(false);
+
+      // Super-admin path: same multi-project shape but isSuperAdmin() flipped;
+      // the linked User now surfaces in search.
+      const {
+        linkedProject: saLinked,
+        repo: superAdminRepo,
+        linkedRepo: saLinkedRepo,
+      } = await buildSuperAdminLinkedProjectFixture();
+      const linkedUserIdForSA = await seedAdminResource(saLinkedRepo, saLinked, 'User');
+      const superAdminResults = await superAdminRepo.searchResources({ resourceType: 'User' });
+      expect(superAdminResults.map((u) => u.id)).toContain(linkedUserIdForSA);
+      expect(superAdminRepo.isSuperAdmin()).toBe(true);
+    }));
+
   test('Binary writes no search parameter columns', () =>
     withTestContext(async () => {
       const { project, repo } = await createTestProject({ withClient: true, withRepo: true });

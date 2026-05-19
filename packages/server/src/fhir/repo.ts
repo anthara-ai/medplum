@@ -1669,11 +1669,19 @@ export class Repository extends FhirRepository<PoolClient> implements Disposable
       return undefined;
     }
 
-    // Admin resource types are scoped to the primary/originating project only.
-    // Project.link never widens admin-resource visibility (spec §5.1, invariant 4.1).
-    // Project itself is intentionally carved out — see the existing
-    // `resourceType === 'Project'` widening below (AC 5.1.6).
-    if (resourceType !== 'Project' && projectAdminResourceTypes.includes(resourceType as ResourceType)) {
+    // Admin resource types are scoped to the primary/originating project only
+    // for non-super-admins. Project.link never widens admin-resource
+    // visibility (spec §5.1, invariant 4.1). Super-admins retain cross-project
+    // admin-resource visibility per invariant 4.3 — the isSuperAdmin() check
+    // here mirrors the gate at canPerformInteraction (~line 2269) so both the
+    // query path (addProjectFilters) and the post-fetch / cache path go
+    // through the same bypass. Project itself is intentionally carved out —
+    // see the existing `resourceType === 'Project'` widening below (AC 5.1.6).
+    if (
+      !this.isSuperAdmin() &&
+      resourceType !== 'Project' &&
+      projectAdminResourceTypes.includes(resourceType as ResourceType)
+    ) {
       return [this.context.projects[0].id];
     }
 
