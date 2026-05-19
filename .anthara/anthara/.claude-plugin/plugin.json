@@ -1,0 +1,27 @@
+{
+  "name": "anthara",
+  "version": "0.1.0",
+  "description": "AI adoption platform for regulated industries. End-to-end SDLC chain — start, brainstorm, discovery, spec-writer, create-ticket, develop, collaboration-loop — with compliance packs (HIPAA / PCI / SOC 2 / FDA SaMD / WCAG / OWASP / Clean Code) injected by context via Fabric MCP's get_relevant_standards. /anthara:start triages the work and routes to the right entry. /anthara:brainstorm generates and evaluates options for open-ended problems before discovery begins. /anthara:develop is a slice-by-slice TDD orchestrator that bakes design-check and per-pack reviewer fleet into the build loop (quality at construction, not correction).",
+  "author": {
+    "name": "Sapan",
+    "email": "sapan@anthara.ai",
+    "url": "https://anthara.ai"
+  },
+  "homepage": "https://anthara.ai",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "sdlc",
+    "brainstorming",
+    "spec-driven-development",
+    "tdd",
+    "regulated-industries",
+    "hipaa",
+    "pci",
+    "soc-2",
+    "fda-samd",
+    "compliance",
+    "discovery",
+    "spec",
+    "code-review"
+  ]
+}

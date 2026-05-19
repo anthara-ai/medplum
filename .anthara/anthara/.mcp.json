@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "fabric": {
+      "type": "http",
+      "url": "${ANTHARA_FABRIC_URL}/fabric/mcp/${ANTHARA_MEMORY_GROUP}",
+      "headers": {
+        "Authorization": "Bearer ${ANTHARA_API_KEY}"
+      }
+    },
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "args": []
+    }
+  }
+}
