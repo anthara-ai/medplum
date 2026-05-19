@@ -16,6 +16,7 @@ import {
   Operator,
   parseSearchRequest,
   preconditionFailed,
+  projectAdminResourceTypes,
   toTypedValue,
 } from '@medplum/core';
 import type {
@@ -27,6 +28,9 @@ import type {
   Observation,
   OperationOutcome,
   Organization,
+  Package,
+  PackageInstallation,
+  PackageRelease,
   Patient,
   Practitioner,
   Project,
@@ -38,6 +42,7 @@ import type {
   StructureDefinition,
   User,
   UserConfiguration,
+  UserSecurityRequest,
   ValueSet,
 } from '@medplum/fhirtypes';
 import { randomBytes, randomUUID } from 'crypto';
@@ -2200,6 +2205,304 @@ describe('FHIR Repo', () => {
 
       const readPatient = await repo.readResource<Patient>('Patient', patient.id);
       expect(readPatient.id).toStrictEqual(patient.id);
+    }));
+
+  // -----------------------------------------------------------------------
+  // Slice 5.1 — Admin resources stop surfacing through linked projects
+  // -----------------------------------------------------------------------
+  // Spec: docs/specs/linked-project-admin-scoping-spec.md §5.1
+  // Invariant 4.1: admin resources are visible only to readers whose primary
+  // project is the originating project; Project.link never widens admin reads.
+  // The seven types in projectAdminResourceTypes are scoped here (Project is
+  // intentionally carved out — see AC 5.1.6 and the existing
+  // 'Project.exportedResourceType' test which asserts projects.length === 3).
+  //
+  // Construction template (matches existing 'Project.exportedResourceType' at
+  // ~line 2063): createTestProject(linked) -> registerNew(primary) ->
+  // globalSystemRepo.updateResource to wire Project.link ->
+  // getRepoForLogin to obtain a multi-project Repository.
+  //
+  // The six admin types swept here exclude Project (carve-out preserved by AC
+  // 5.1.6). Cited rules from get_relevant_standards:
+  //   - HIPAA §164.308(a)(4) minimum necessary (a4fe47cd-...) — AC 5.1.4
+  //   - HIPAA §164.312(a)(1) access control (66c041ee-...)   — AC 5.1.5
+  const adminTypesExceptProject = [
+    'ProjectMembership',
+    'User',
+    'UserSecurityRequest',
+    'Package',
+    'PackageRelease',
+    'PackageInstallation',
+  ] as const;
+
+  /**
+   * Seeds one resource of `resourceType` into the project owned by `seedRepo`
+   * and returns its id. `seedRepo` is the basic project-bound Repository
+   * returned by `createTestProject({ withRepo: true })` (no project-admin
+   * access policy applied), which permits writes to any resource type.
+   *
+   * The shapes mirror existing call sites:
+   *   - ProjectMembership: createTestProject pattern (test.setup.ts:120)
+   *   - User: 'Super admin can edit User.meta.project' test (~line 1683)
+   *   - UserSecurityRequest: auth/resetpassword.ts:112
+   *   - Package / PackageRelease / PackageInstallation:
+   *       fhir/operations/packageinstall.test.ts:70-95
+   */
+  async function seedAdminResource(
+    seedRepo: Repository,
+    seedProject: WithId<Project>,
+    resourceType: (typeof adminTypesExceptProject)[number]
+  ): Promise<string> {
+    switch (resourceType) {
+      case 'ProjectMembership': {
+        const membership = await seedRepo.createResource<ProjectMembership>({
+          resourceType: 'ProjectMembership',
+          project: createReference(seedProject),
+          user: { reference: 'User/' + randomUUID() },
+          profile: { reference: 'Practitioner/' + randomUUID() },
+        });
+        return membership.id;
+      }
+      case 'User': {
+        const user = await seedRepo.createResource<User>({
+          resourceType: 'User',
+          email: randomUUID() + '@example.com',
+          firstName: randomUUID(),
+          lastName: randomUUID(),
+        });
+        return user.id;
+      }
+      case 'UserSecurityRequest': {
+        const usr = await seedRepo.createResource<UserSecurityRequest>({
+          resourceType: 'UserSecurityRequest',
+          type: 'reset',
+          user: { reference: 'User/' + randomUUID() },
+          secret: randomUUID(),
+        });
+        return usr.id;
+      }
+      case 'Package': {
+        const pkg = await seedRepo.createResource<Package>({
+          resourceType: 'Package',
+          status: 'active',
+          name: randomUUID(),
+          author: { reference: 'Organization/' + randomUUID() },
+        });
+        return pkg.id;
+      }
+      case 'PackageRelease': {
+        const rel = await seedRepo.createResource<PackageRelease>({
+          resourceType: 'PackageRelease',
+          package: { reference: 'Package/' + randomUUID() },
+          version: '1.0.0',
+          content: { contentType: ContentType.FHIR_JSON, url: 'Binary/' + randomUUID() },
+        });
+        return rel.id;
+      }
+      case 'PackageInstallation': {
+        const inst = await seedRepo.createResource<PackageInstallation>({
+          resourceType: 'PackageInstallation',
+          package: { reference: 'Package/' + randomUUID() },
+          packageRelease: { reference: 'PackageRelease/' + randomUUID() },
+          version: '1.0.0',
+          status: 'installed',
+          installedBy: { reference: 'Practitioner/' + randomUUID() },
+        });
+        return inst.id;
+      }
+      default:
+        throw new Error('Unhandled admin resource type: ' + resourceType);
+    }
+  }
+
+  /**
+   * Builds the multi-project Repository for slice 5.1 tests.
+   * Returns { primaryProject, linkedProject, repo, linkedRepo } where `repo`
+   * is the parent project's project-admin Repository whose context.projects
+   * is [primaryProject, linkedProject].
+   *
+   * Mirrors the construction at 'Project.exportedResourceType' (~line 2063);
+   * do not invent a parallel setup.
+   */
+  async function buildLinkedProjectFixture(opts?: {
+    linkedExportedResourceType?: ResourceType[];
+  }): Promise<{
+    primaryProject: WithId<Project>;
+    linkedProject: WithId<Project>;
+    repo: Repository;
+    primarySeedRepo: Repository;
+    linkedRepo: Repository;
+  }> {
+    const { project: linkedProject, repo: linkedRepo } = await createTestProject({
+      project: opts?.linkedExportedResourceType
+        ? { exportedResourceType: opts.linkedExportedResourceType }
+        : {},
+      withRepo: true,
+    });
+
+    const regRequest: RegisterRequest = {
+      firstName: randomUUID(),
+      lastName: randomUUID(),
+      projectName: randomUUID(),
+      email: randomUUID() + '@example.com',
+      password: randomUUID(),
+    };
+    const regResult = await registerNew(regRequest);
+    let primaryProject = regResult.project;
+
+    primaryProject = await globalSystemRepo.updateResource({
+      ...primaryProject,
+      link: [{ project: createReference(linkedProject) }],
+    });
+
+    const repo = await getRepoForLogin({
+      project: primaryProject,
+      membership: regResult.membership,
+      login: regResult.login,
+      userConfig: {} as UserConfiguration,
+    });
+
+    // primarySeedRepo: a basic Repository bound only to the primary project
+    // with no project-admin access policy applied. Used to write seed admin
+    // resources into the primary project for tests that need both sides
+    // populated. The project-admin policy applied via `applyProjectAdminAccessPolicy`
+    // marks Package/PackageRelease/PackageInstallation as readonly and would
+    // reject writes from `repo`; this seed repo bypasses that, matching the
+    // construction at test.setup.ts:168.
+    const primarySeedRepo = new Repository({
+      projects: [primaryProject],
+      currentProject: primaryProject,
+      author: regResult.membership.profile,
+      extendedMode: true,
+    });
+
+    return { primaryProject, linkedProject, repo, primarySeedRepo, linkedRepo };
+  }
+
+  test.each(adminTypesExceptProject)(
+    '5.1.1 admin resource search excludes linked-project results: %s',
+    (resourceType) =>
+      withTestContext(async () => {
+        // AC 5.1.1: search from Project A returns only resources whose
+        // meta.project === A.id; Project B's admin resources (created via
+        // linkedRepo) must not appear.
+        const { primaryProject, linkedProject, repo, primarySeedRepo, linkedRepo } =
+          await buildLinkedProjectFixture();
+
+        const linkedId = await seedAdminResource(linkedRepo, linkedProject, resourceType);
+        const primaryId = await seedAdminResource(primarySeedRepo, primaryProject, resourceType);
+
+        const results = await repo.searchResources({ resourceType });
+        const ids = results.map((r) => r.id);
+
+        expect(ids).toContain(primaryId);
+        expect(ids).not.toContain(linkedId);
+        for (const r of results) {
+          expect(r.meta?.project).toStrictEqual(primaryProject.id);
+        }
+      })
+  );
+
+  test.each(adminTypesExceptProject)(
+    '5.1.2 admin resource direct-read from linked project returns 404: %s',
+    (resourceType) =>
+      withTestContext(async () => {
+        // AC 5.1.2: direct-read of a linked-project admin resource by id from
+        // the primary-project repo rejects with OperationOutcomeError(notFound).
+        const { linkedProject, repo, linkedRepo } = await buildLinkedProjectFixture();
+
+        const linkedId = await seedAdminResource(linkedRepo, linkedProject, resourceType);
+
+        await expect(repo.readResource(resourceType, linkedId)).rejects.toThrow(
+          new OperationOutcomeError(notFound)
+        );
+      })
+  );
+
+  test.each(adminTypesExceptProject)(
+    '5.1.3 exportedResourceType cannot widen admin-resource visibility: %s',
+    (resourceType) =>
+      withTestContext(async () => {
+        // AC 5.1.3: even when the linked project deliberately attempts to
+        // export an admin type via Project.exportedResourceType, the new guard
+        // in getPermittedProjectIds runs BEFORE the exportedResourceType
+        // check and so the admin resource still does not surface.
+        const { linkedProject, repo, linkedRepo } = await buildLinkedProjectFixture({
+          linkedExportedResourceType: [resourceType as ResourceType],
+        });
+
+        const linkedId = await seedAdminResource(linkedRepo, linkedProject, resourceType);
+
+        // Search-path: linked admin resource excluded.
+        const results = await repo.searchResources({ resourceType });
+        expect(results.map((r) => r.id)).not.toContain(linkedId);
+
+        // Direct-read-path: still 404.
+        await expect(repo.readResource(resourceType, linkedId)).rejects.toThrow(
+          new OperationOutcomeError(notFound)
+        );
+      })
+  );
+
+  test('5.1.4 getPermittedProjectIds collapses to primary project for each admin type (HIPAA minimum necessary)', () =>
+    withTestContext(async () => {
+      // AC 5.1.4 — Compliance assertion. Cited rule:
+      //   HIPAA "Minimum necessary standard" rule_id a4fe47cd-1557-48a1-8f8d-44c2d9c8cbd7
+      // For each of the seven admin resource types, getPermittedProjectIds on
+      // a multi-project Repository context returns exactly [primaryProject.id].
+      //
+      // getPermittedProjectIds is a private method on Repository; the cast
+      // pattern (repo as any).getPermittedProjectIds(...) matches the existing
+      // convention used at 'Binary writes no search parameter columns'
+      // (~line 2208) which spies on the private buildResourceRow.
+      const { primaryProject, repo } = await buildLinkedProjectFixture();
+
+      for (const adminType of projectAdminResourceTypes) {
+        if (adminType === 'Project') {
+          // Project is intentionally carved out; AC 5.1.6 covers it.
+          continue;
+        }
+        const permitted = (repo as any).getPermittedProjectIds(adminType) as string[] | undefined;
+        expect(permitted).toStrictEqual([primaryProject.id]);
+      }
+    }));
+
+  test('5.1.5 cached-read of linked-project admin User still returns 404 (HIPAA access control)', () =>
+    withTestContext(async () => {
+      // AC 5.1.5 — Compliance assertion. Cited rule:
+      //   HIPAA "Access control" rule_id 66c041ee-dff2-492d-a184-67653649c920
+      // Mirrors the existing regression test at
+      // 'Project.exportedResourceType enforced on cached reads' (~line 2132):
+      // create via linkedRepo to warm the Redis cache, then read via the
+      // parent repo. The cache path bypasses addProjectFilters and only hits
+      // canPerformInteraction — both call sites go through
+      // getPermittedProjectIds, so the new guard must cover both.
+      const { linkedProject, repo, linkedRepo } = await buildLinkedProjectFixture();
+
+      // Warm the Redis cache by writing through linkedRepo.
+      const linkedUserId = await seedAdminResource(linkedRepo, linkedProject, 'User');
+
+      // Cache-path read from the parent project's repo must still be denied.
+      await expect(repo.readResource<User>('User', linkedUserId)).rejects.toThrow(
+        new OperationOutcomeError(notFound)
+      );
+    }));
+
+  test('5.1.6 Project resource carve-out preserved: searching Project still returns linked projects', () =>
+    withTestContext(async () => {
+      // AC 5.1.6: the 'Project' resourceType is intentionally exempt from the
+      // new admin-resource guard (see repo.ts:1675 — `resourceType === 'Project'`
+      // widens the project list to include all linked projects). This is the
+      // pre-existing carve-out that the existing 'Project.exportedResourceType'
+      // test (~line 2063) depends on; the new guard for admin resources must
+      // NOT collapse it. Searching for Project from a multi-project context
+      // must return BOTH primaryProject and linkedProject.
+      const { primaryProject, linkedProject, repo } = await buildLinkedProjectFixture();
+
+      const projects = await repo.searchResources({ resourceType: 'Project' });
+      const ids = projects.map((p) => p.id);
+      expect(ids).toContain(primaryProject.id);
+      expect(ids).toContain(linkedProject.id);
     }));
 
   test('Binary writes no search parameter columns', () =>

@@ -52,6 +52,7 @@ import {
   parseReference,
   parseSearchRequest,
   preconditionFailed,
+  projectAdminResourceTypes,
   PropertyType,
   protectedResourceTypes,
   readInteractions,
@@ -1666,6 +1667,14 @@ export class Repository extends FhirRepository<PoolClient> implements Disposable
   private getPermittedProjectIds(resourceType: string): string[] | undefined {
     if (!this.context.projects?.length) {
       return undefined;
+    }
+
+    // Admin resource types are scoped to the primary/originating project only.
+    // Project.link never widens admin-resource visibility (spec §5.1, invariant 4.1).
+    // Project itself is intentionally carved out — see the existing
+    // `resourceType === 'Project'` widening below (AC 5.1.6).
+    if (resourceType !== 'Project' && projectAdminResourceTypes.includes(resourceType as ResourceType)) {
+      return [this.context.projects[0].id];
     }
 
     const projectIds = [this.context.projects[0].id]; // Always include the first project
