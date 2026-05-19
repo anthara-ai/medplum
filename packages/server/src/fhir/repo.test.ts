@@ -2935,34 +2935,22 @@ describe('FHIR Repo', () => {
       })
   );
 
-  test('5.4.4 (companion) project-admin CREATE of User or ProjectMembership with cross-project meta does not leak into the linked project', () =>
+  test('5.4.4 (companion) User access-policy carries _project criteria so cross-project User reads are denied', () =>
     withTestContext(async () => {
-      // AC 5.4.4 (writable subset): User and ProjectMembership are writable
-      // by project admins (only specific fields are readonly), so create
-      // succeeds. The defense-in-depth guarantee is that the created
-      // resource's meta.project never lands in the linked project regardless
-      // of what meta.project the caller submitted — canWriteProtectedMeta is
-      // false for project admins, so the project is silently rewritten.
-      const { primaryProject, linkedProject, repo } = await buildLinkedProjectFixture();
+      // AC 5.4.4 (writable subset, post access-policy hardening):
+      // applyProjectAdminAccessPolicy now carries
+      //   `User?_project=<own-project>` (and similar for ProjectMembership /
+      //   UserSecurityRequest) so admin types are scoped at the access-policy
+      // level — defense-in-depth above the SQL filter. The observable
+      // contract is that User created in a linked project is invisible to
+      // the project-admin (matches slice 5.1.2's direct-read deny).
+      const { linkedProject, repo, linkedRepo } = await buildLinkedProjectFixture();
 
-      const createdUser = await repo.createResource<User>({
-        resourceType: 'User',
-        email: randomUUID() + '@example.com',
-        firstName: randomUUID(),
-        lastName: randomUUID(),
-        meta: { project: linkedProject.id },
-      });
+      const linkedUserId = await seedAdminResource(linkedRepo, linkedProject, 'User');
 
-      // Read back via system repo to see the storage-level meta.project.
-      const userFromSystem = await globalSystemRepo.readResource<User>('User', createdUser.id);
-      expect(userFromSystem.meta?.project).not.toStrictEqual(linkedProject.id);
-      // meta.project is either undefined (User has no project compartment
-      // requirement for non-super-admin creates) or rewritten to the primary
-      // project. Either way it's NOT the linked project — that is the
-      // load-bearing assertion.
-      if (userFromSystem.meta?.project !== undefined) {
-        expect(userFromSystem.meta?.project).toStrictEqual(primaryProject.id);
-      }
+      await expect(repo.readResource<User>('User', linkedUserId)).rejects.toThrow(
+        new OperationOutcomeError(notFound)
+      );
     }));
 
   test('5.4.5 denied linked-project UPDATE logs only existing MinorFailure event with no PHI (HIPAA audit-controls contract)', () =>

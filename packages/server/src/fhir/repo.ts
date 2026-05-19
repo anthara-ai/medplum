@@ -1735,9 +1735,16 @@ export class Repository extends FhirRepository<PoolClient> implements Disposable
 
     const expressions: Expression[] = [];
 
+    // Wildcard policies (`{ resourceType: '*' }`) must not grant access to
+    // project admin resource types — those require an explicit policy entry
+    // (which carries the project-scope criteria built by
+    // applyProjectAdminAccessPolicy). Spec §4.1 / invariant 4.1 — admin
+    // resources never widen through a wildcard.
+    const isProjectAdminResource = projectAdminResourceTypes.includes(resourceType as ResourceType);
+
     for (const policy of accessPolicy.resource) {
       if (
-        (policy.resourceType === resourceType || policy.resourceType === '*') &&
+        (policy.resourceType === resourceType || (policy.resourceType === '*' && !isProjectAdminResource)) &&
         (!policy.interaction || policy.interaction.includes(interaction))
       ) {
         const policyCompartmentId = resolveId(policy.compartment);
@@ -1933,6 +1940,7 @@ export class Repository extends FhirRepository<PoolClient> implements Disposable
       searchParam.code === '_lastUpdated' ||
       searchParam.code === '_compartment:identifier' ||
       searchParam.code === '_deleted' ||
+      searchParam.code === '_project' ||
       searchParam.type === 'composite'
     ) {
       return;
