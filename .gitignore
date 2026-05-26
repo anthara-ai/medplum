@@ -100,12 +100,5 @@ test-results/
 playwright-report/
 playwright/.cache/
 
-# Cursor
-.cursor/
-
-# Claude
-.claude/
-CLAUDE.md
-
 # 0x profiling data
 *.0x
