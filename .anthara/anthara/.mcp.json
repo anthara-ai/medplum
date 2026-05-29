@@ -7,10 +7,6 @@
         "Authorization": "Bearer ${ANTHARA_API_KEY}"
       }
     },
-    "codebase-memory-mcp": {
-      "command": "codebase-memory-mcp",
-      "args": []
-    },
     "chrome-devtools": {
       "command": "npx",
       "args": [
