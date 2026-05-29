@@ -1,0 +1,60 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__plugin_anthara_fabric__add_shared_memory",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/gate-shared-memory.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-local-memory.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — PRE-COMPACTION: Context compaction is about to happen. Check for unsaved durable learnings that match SAVE triggers: user corrections, stated preferences, decisions made, gotchas discovered, reference URLs shared. Each memory must be atomic, context-independent, durable, and include subject name and WHY. Update existing memories instead of duplicating. Do NOT dump session state or task summaries. If nothing unsaved, skip silently.'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — LOAD TAGS: If mcp__plugin_anthara_fabric__list_tags has not been called in this session, call it NOW before any mcp__plugin_anthara_fabric__add_private_memory, mcp__plugin_anthara_fabric__add_shared_memory, or mcp__plugin_anthara_fabric__search_memories call. The returned taxonomy is the set of canonical tag names to pick from. If already loaded, skip.'"
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/memory-search.sh"
+          },
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — TAG YOUR WRITES: Every memory write via mcp__plugin_anthara_fabric__add_private_memory or mcp__plugin_anthara_fabric__add_shared_memory MUST include tags=[...] picked from the list_tags taxonomy. CHOOSE TAGS BY THE KIND OF MEMORY, NOT BY TOPIC WORDS IN THE CONTENT. The KIND is what type of knowledge this is (identity, decision, preference, anti-pattern, fix, convention, policy, tooling-setup-instruction). The TOPIC is what the memory happens to mention (Python, FastAPI, ArgoCD, pnpm). A memory saying \"John works on Fabric, a Python/FastAPI service\" is IDENTITY/team_context — NOT tooling_setup, even though it mentions Python. Reuse canonical names that genuinely capture the kind. If NO existing tag accurately captures the kind, propose a new one with a snake_case name — server-side dedup will collapse it if a true semantic match exists. Wrong tag = invisible at search time; pick deliberately, do not force-fit. After the write, inspect TaggedWriteResponse.tags[*].canonical — when status=matched_existing, your proposal was deduped; use the canonical on future writes. When status=created_new, a new tag was inserted; the worker will fill in its description asynchronously.'"
+          },
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — MEMORY SAVE POLICY: When asked to remember or save anything, ALWAYS use Fabric (mcp__plugin_anthara_fabric__add_private_memory for personal preferences, mcp__plugin_anthara_fabric__add_shared_memory for team conventions — confirm shared with user via AskUserQuestion first). NEVER use the local .claude/projects/ file-based memory system. This is enforced by PreToolUse hooks.'"
+          },
+          {
+            "type": "command",
+            "command": "echo 'MANDATORY — POST-RESPONSE MEMORY: After responding, silently check if this turn matches a SAVE trigger. SAVE triggers (only these): user corrected your approach, user stated a preference, a decision was made (architecture/process/tooling), a gotcha or pitfall was discovered, user shared a reference URL or resource. Quality rules: each memory must be atomic (one fact), context-independent (readable without this session), durable (useful in future sessions), include subject name (Dinesh prefers X not user prefers X), include WHY if known. Before saving, check if an existing memory should be UPDATED instead of adding a duplicate. When a trigger clearly matches, SAVE immediately without waiting to be asked. Default to SKIP only when it is genuinely ambiguous whether a trigger was hit. If saving: tell user Saved: short summary. If skipping: stop silently with NO message.'"
+          }
+        ]
+      }
+    ]
+  }
+}
