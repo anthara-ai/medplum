@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "anthara": {
+      "source": {
+        "source": "directory",
+        "path": ".anthara"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "anthara@anthara": true
+  }
+}

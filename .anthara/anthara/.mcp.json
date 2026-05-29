@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "fabric": {
+      "type": "http",
+      "url": "https://self.anthara.ai/fabric/mcp/anthara",
+      "headers": {
+        "Authorization": "Bearer ${ANTHARA_API_KEY}"
+      }
+    },
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "args": []
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ]
+    }
+  }
+}
